@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🎾 Torneo Padel Depto</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Quitar las flechitas del input number */
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type="number"] { -moz-appearance: textfield; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script>
+    // ============================================================
+    //  DATOS
+    // ============================================================
+    const rawPlayers = [
+      "Citlaly Paredes", "Leonardo Gonzalez", "Estefany Gomez", "Sebastian Aguilar",
+      "Thalía López", "Rodrigo Chavez", "Fernando Ramos", "Renata Mayorquin",
+      "Scarlet de la Torre", "Luis Ríos", "Kevin Villa", "Ana Kuri",
+      "Vladimir Miranda", "Edwin Ramos", "Alexia Asomoza", "Mau",
+      "David", "Emmanuel Hernández", "Karime Infante", "Omar Cuarenta", "Verónica Toro"
+    ];
+
+    // ============================================================
+    //  ESTADO (en lugar de useState)
+    // ============================================================
+    const state = {
+      players: [],
+      currentRound: null,
+      nextRound: null,
+      roundNumber: 1,
+      history: []
+    };
+
+    // ============================================================
+    //  HELPERS
+    // ============================================================
+    function shuffleArray(array) {
+      const newArray = [...array];
+      for (let i = newArray.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+      }
+      return newArray;
+    }
+
+    function buildMatches(pool) {
+      let sortedPool = shuffleArray([...pool]);
+      // Priorizar a quienes han descansado más
+      sortedPool.sort((a, b) => a.matchesPlayed - b.matchesPlayed);
+
+      const selected12 = sortedPool.slice(0, 12);
+      const mixed12 = shuffleArray(selected12);
+
+      return [
+        { court: 1, team1: [mixed12[0], mixed12[1]], team2: [mixed12[2], mixed12[3]], score1: '', score2: '' },
+        { court: 2, team1: [mixed12[4], mixed12[5]], team2: [mixed12[6], mixed12[7]], score1: '', score2: '' },
+        { court: 3, team1: [mixed12[8], mixed12[9]], team2: [mixed12[10], mixed12[11]], score1: '', score2: '' }
+      ];
+    }
+
+    function simulatePlayed(currentPlayers, activeRound) {
+      const activeIds = new Set();
+      activeRound.forEach(match => {
+        match.team1.forEach(p => activeIds.add(p.id));
+        match.team2.forEach(p => activeIds.add(p.id));
+      });
+      return currentPlayers.map(p => ({
+        ...p,
+        matchesPlayed: p.matchesPlayed + (activeIds.has(p.id) ? 1 : 0)
+      }));
+    }
+
+    function esc(text) {
+      const div = document.createElement('div');
+      div.textContent = String(text);
+      return div.innerHTML;
+    }
+
+    // ============================================================
+    //  ACCIONES
+    // ============================================================
+    function init() {
+      const shuffledNames = shuffleArray(rawPlayers);
+      state.players = shuffledNames.map((name, index) => ({
+        id: index,
+        name: name,
+        matchesPlayed: 0,
+        gamesWon: 0,
+        gamesLost: 0,
+      }));
+      render();
+    }
+
+    function startTournament() {
+      const r1 = buildMatches(state.players);
+      state.currentRound = r1;
+      const expectedAfterR1 = simulatePlayed(state.players, r1);
+      state.nextRound = buildMatches(expectedAfterR1);
+      render();
+    }
+
+    // Importante: NO hacemos render() aquí para que el input
+    // no pierda el focus mientras escribes. El valor ya queda
+    // guardado en el estado y al re-renderizar después
+    // (al guardar la ronda) tomará el valor correcto.
+    function handleScoreChange(courtIndex, team, value) {
+      state.currentRound[courtIndex][team] = value === '' ? '' : (parseInt(value) || 0);
+    }
+
+    function submitRound() {
+      for (let match of state.currentRound) {
+        if (match.score1 === '' || match.score2 === '') {
+          alert("Por favor ingresa todos los resultados (pueden ser 0) antes de continuar.");
+          return;
+        }
+      }
+
+      // 1. Guardar resultados en perfiles
+      state.currentRound.forEach(match => {
+        const s1 = parseInt(match.score1);
+        const s2 = parseInt(match.score2);
+
+        match.team1.forEach(p => {
+          const idx = state.players.findIndex(up => up.id === p.id);
+          state.players[idx].matchesPlayed += 1;
+          state.players[idx].gamesWon += s1;
+          state.players[idx].gamesLost += s2;
+        });
+        match.team2.forEach(p => {
+          const idx = state.players.findIndex(up => up.id === p.id);
+          state.players[idx].matchesPlayed += 1;
+          state.players[idx].gamesWon += s2;
+          state.players[idx].gamesLost += s1;
+        });
+      });
+
+      // 2. Historial
+      state.history.push({ roundNum: state.roundNumber, matches: state.currentRound });
+
+      // 3. Avanzar
+      state.currentRound = state.nextRound;
+
+      // 4. Precalcular siguiente
+      const expected = simulatePlayed(state.players, state.currentRound);
+      state.nextRound = buildMatches(expected);
+
+      state.roundNumber += 1;
+      render();
+    }
+
+    // ============================================================
+    //  RENDER (templates en strings)
+    // ============================================================
+    function viewHeader() {
+      return `
+        <header class="bg-gradient-to-r from-blue-700 to-blue-500 text-white p-6 rounded-2xl shadow-lg flex flex-col md:flex-row justify-between items-center">
+          <div>
+            <h1 class="text-3xl font-bold tracking-tight">🎾 Torneo Padel Depto</h1>
+            <p class="text-blue-100 mt-1 font-medium">Formato Round Robin | 21 Jugadores</p>
+          </div>
+          ${state.currentRound ? `
+            <div class="mt-4 md:mt-0 flex items-center gap-4">
+              <div class="bg-white/20 px-4 py-2 rounded-lg font-bold backdrop-blur-sm">
+                Ronda Activa: ${state.roundNumber}
+              </div>
+            </div>` : ''}
+        </header>
+      `;
+    }
+
+    function viewStartScreen() {
+      return `
+        <div class="bg-white p-12 rounded-2xl shadow-sm text-center border border-slate-200">
+          <h2 class="text-2xl font-bold text-slate-800 mb-4">¿Todo listo para empezar?</h2>
+          <p class="text-slate-500 mb-8 max-w-md mx-auto">
+            El algoritmo se encargará de mezclar a las parejas, asignar las canchas y asegurar que nadie juegue al mismo tiempo.
+          </p>
+          <button data-action="start"
+            class="bg-green-500 hover:bg-green-600 text-white px-8 py-4 rounded-xl font-bold text-lg transition-transform transform active:scale-95 shadow-md">
+            🚀 Iniciar Torneo (Generar Ronda 1)
+          </button>
+        </div>
+      `;
+    }
+
+    function viewCurrentRound() {
+      const matchesHtml = state.currentRound.map((match, idx) => `
+        <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div class="text-center font-bold text-slate-400 text-sm md:w-24 bg-white py-1 px-2 rounded border">
+            CANCHA ${match.court}
+          </div>
+
+          <div class="flex-1 flex items-center gap-3 w-full">
+            <div class="flex-1 text-right">
+              <div class="font-semibold text-blue-700">${esc(match.team1[0].name)}</div>
+              <div class="font-semibold text-blue-700">${esc(match.team1[1].name)}</div>
+            </div>
+            <input type="number" min="0" inputmode="numeric"
+              data-score data-court="${idx}" data-team="score1"
+              value="${match.score1}"
+              class="w-16 h-12 text-center text-xl font-bold border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
+              placeholder="0" />
+          </div>
+
+          <div class="text-slate-300 font-black px-2">VS</div>
+
+          <div class="flex-1 flex items-center gap-3 w-full flex-row-reverse md:flex-row">
+            <input type="number" min="0" inputmode="numeric"
+              data-score data-court="${idx}" data-team="score2"
+              value="${match.score2}"
+              class="w-16 h-12 text-center text-xl font-bold border-2 border-red-200 rounded-lg focus:outline-none focus:border-red-500 bg-white"
+              placeholder="0" />
+            <div class="flex-1 text-left">
+              <div class="font-semibold text-red-600">${esc(match.team2[0].name)}</div>
+              <div class="font-semibold text-red-600">${esc(match.team2[1].name)}</div>
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      return `
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 border-t-4 border-t-blue-500">
+          <div class="flex justify-between items-center mb-6 border-b pb-4">
+            <h2 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+              <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-md text-sm">EN JUEGO</span>
+              Ronda ${state.roundNumber}
+            </h2>
+          </div>
+
+          <div class="space-y-4">${matchesHtml}</div>
+
+          <div class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 bg-blue-50 p-4 rounded-xl">
+            <p class="text-sm text-blue-800 font-medium text-center sm:text-left">
+              Ingresa los puntos/juegos y avanza cuando termine el tiempo.
+            </p>
+            <button data-action="submit"
+              class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold transition-transform transform active:scale-95 shadow-md w-full sm:w-auto whitespace-nowrap">
+              Guardar y Siguiente Ronda
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function viewNextRound() {
+      if (!state.nextRound) return '';
+
+      const matchesHtml = state.nextRound.map(match => `
+        <div class="bg-white p-3 rounded-lg border border-slate-200 text-sm">
+          <div class="font-bold text-slate-400 mb-2 border-b pb-1 text-center">CANCHA ${match.court}</div>
+          <div class="text-center">
+            <div class="text-blue-600 font-medium">${esc(match.team1[0].name)}</div>
+            <div class="text-blue-600 font-medium mb-1">${esc(match.team1[1].name)}</div>
+            <div class="text-xs text-slate-400 mb-1">VS</div>
+            <div class="text-red-500 font-medium">${esc(match.team2[0].name)}</div>
+            <div class="text-red-500 font-medium">${esc(match.team2[1].name)}</div>
+          </div>
+        </div>
+      `).join('');
+
+      const restingNext = state.players.filter(p => !state.nextRound.some(m =>
+        m.team1.some(t1 => t1.id === p.id) || m.team2.some(t2 => t2.id === p.id)
+      )).map(p => `<span class="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded">${esc(p.name)}</span>`).join('');
+
+      return `
+        <div class="bg-slate-50 p-6 rounded-2xl shadow-inner border border-slate-200 border-dashed opacity-80">
+          <div class="mb-4">
+            <h2 class="text-xl font-bold text-slate-500 flex items-center gap-2">
+              <span class="bg-slate-200 text-slate-600 px-3 py-1 rounded-md text-sm">VISTA PREVIA</span>
+              Próxima Ronda (${state.roundNumber + 1})
+            </h2>
+            <p class="text-sm text-slate-500 mt-1">Estos jugadores pueden ir preparándose.</p>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">${matchesHtml}</div>
+
+          <div class="mt-4 pt-4 border-t border-slate-200">
+            <p class="text-xs font-bold text-slate-400 uppercase mb-2">Descansarán en la Ronda ${state.roundNumber + 1}:</p>
+            <div class="flex flex-wrap gap-1">${restingNext}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function viewResting() {
+      if (!state.currentRound) return '';
+      const resting = state.players.filter(p => !state.currentRound.some(m =>
+        m.team1.some(t1 => t1.id === p.id) || m.team2.some(t2 => t2.id === p.id)
+      )).map(p => `<span class="bg-white text-amber-700 px-3 py-1 rounded-full text-xs font-semibold border border-amber-300 shadow-sm">${esc(p.name)}</span>`).join('');
+
+      return `
+        <div class="bg-amber-50 border border-amber-200 p-5 rounded-2xl">
+          <h3 class="font-bold text-amber-800 mb-3 flex items-center gap-2">
+            <span>☕</span> Descansan en esta ronda
+          </h3>
+          <div class="flex flex-wrap gap-2">${resting}</div>
+        </div>
+      `;
+    }
+
+    function viewLeaderboard() {
+      const sorted = [...state.players].sort((a, b) => {
+        if (b.gamesWon !== a.gamesWon) return b.gamesWon - a.gamesWon;
+        return (b.gamesWon - b.gamesLost) - (a.gamesWon - a.gamesLost);
+      });
+
+      const rows = sorted.map((player, index) => `
+        <tr class="border-b last:border-0 border-slate-100 hover:bg-slate-50">
+          <td class="px-2 py-2 font-bold text-slate-400">${index + 1}</td>
+          <td class="px-2 py-2 font-semibold text-slate-700">${esc(player.name)}</td>
+          <td class="px-2 py-2 text-center">${player.matchesPlayed}</td>
+          <td class="px-2 py-2 text-center font-bold text-green-600">${player.gamesWon}</td>
+          <td class="px-2 py-2 text-center text-slate-500">${player.gamesWon - player.gamesLost}</td>
+        </tr>
+      `).join('');
+
+      return `
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+          <h2 class="text-xl font-bold text-slate-800 mb-4">🏆 Tabla Individual</h2>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left">
+              <thead class="text-xs text-slate-500 uppercase bg-slate-50">
+                <tr>
+                  <th class="px-2 py-2 rounded-tl-lg">#</th>
+                  <th class="px-2 py-2">Jugador</th>
+                  <th class="px-2 py-2 text-center" title="Partidos Jugados">PJ</th>
+                  <th class="px-2 py-2 text-center text-green-600" title="Puntos/Juegos Ganados">PG</th>
+                  <th class="px-2 py-2 text-center text-slate-400 rounded-tr-lg" title="Diferencia">DIF</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function viewHistory() {
+      if (state.history.length === 0) return '';
+
+      const cards = [...state.history].reverse().map(roundData => {
+        const matches = roundData.matches.map(match => `
+          <div class="text-sm">
+            <div class="text-xs text-slate-400 font-bold mb-1">CANCHA ${match.court}</div>
+            <div class="flex justify-between items-center bg-slate-50 p-2 rounded">
+              <div class="flex-1">
+                <div>${esc(match.team1[0].name)}</div>
+                <div>${esc(match.team1[1].name)}</div>
+              </div>
+              <div class="px-3 font-bold text-lg text-blue-600">${match.score1}</div>
+              <div class="text-slate-300 px-1">-</div>
+              <div class="px-3 font-bold text-lg text-red-500">${match.score2}</div>
+              <div class="flex-1 text-right">
+                <div>${esc(match.team2[0].name)}</div>
+                <div>${esc(match.team2[1].name)}</div>
+              </div>
+            </div>
+          </div>
+        `).join('');
+
+        return `
+          <div class="border border-slate-200 rounded-xl overflow-hidden">
+            <div class="bg-slate-100 px-4 py-2 font-bold text-slate-700 border-b border-slate-200">
+              Ronda ${roundData.roundNum}
+            </div>
+            <div class="p-4 space-y-4">${matches}</div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mt-8">
+          <h2 class="text-2xl font-bold text-slate-800 mb-6">📚 Historial de Resultados</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${cards}</div>
+        </div>
+      `;
+    }
+
+    function render() {
+      const app = document.getElementById('app');
+
+      let body;
+      if (!state.currentRound) {
+        body = viewStartScreen();
+      } else {
+        body = `
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-2 space-y-8">
+              ${viewCurrentRound()}
+              ${viewNextRound()}
+            </div>
+            <div class="space-y-6">
+              ${viewResting()}
+              ${viewLeaderboard()}
+            </div>
+          </div>
+        `;
+      }
+
+      app.innerHTML = `
+        <div class="min-h-screen bg-slate-100 p-4 md:p-8 font-sans pb-20">
+          <div class="max-w-7xl mx-auto space-y-8">
+            ${viewHeader()}
+            ${body}
+            ${viewHistory()}
+          </div>
+        </div>
+      `;
+
+      attachListeners();
+    }
+
+    // ============================================================
+    //  EVENT LISTENERS (delegación)
+    // ============================================================
+    function attachListeners() {
+      // Botones (delegación por data-action)
+      document.querySelectorAll('[data-action]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const action = btn.dataset.action;
+          if (action === 'start') startTournament();
+          if (action === 'submit') submitRound();
+        });
+      });
+
+      // Inputs de marcador
+      document.querySelectorAll('[data-score]').forEach(input => {
+        input.addEventListener('input', (e) => {
+          const courtIdx = parseInt(e.target.dataset.court);
+          const team = e.target.dataset.team;
+          handleScoreChange(courtIdx, team, e.target.value);
+        });
+      });
+    }
+
+    // ============================================================
+    //  ARRANCAR
+    // ============================================================
+    init();
+  </script>
+</body>
+</html>
